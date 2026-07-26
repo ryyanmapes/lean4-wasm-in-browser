@@ -80,7 +80,7 @@ RUN npm ci \
 
 FROM nginx:1.27-alpine AS release
 
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY lean4.js/deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-builder /workspace/lean4.js/dist/ /usr/share/nginx/html/
 
 RUN nginx -t \
@@ -92,4 +92,3 @@ EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1
-
