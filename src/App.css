@@ -1,697 +1,177 @@
-/* Lean 4 WASM Playground Styles */
-
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
-
 :root {
-  /* Monochrome palette */
-  --white: #ffffff;
-  --gray-50: #fafafa;
-  --gray-100: #f5f5f5;
-  --gray-200: #e5e5e5;
-  --gray-300: #d4d4d4;
-  --gray-400: #a3a3a3;
-  --gray-500: #737373;
-  --gray-600: #525252;
-  --gray-700: #404040;
-  --gray-800: #262626;
-  --gray-900: #171717;
-  --black: #0a0a0a;
-
-  /* Semantic colors */
-  --bg-primary: var(--black);
-  --bg-surface: var(--gray-900);
-  --bg-elevated: var(--gray-800);
-  --bg-card: #0f0f0f;
-
-  --text-primary: var(--gray-100);
-  --text-secondary: var(--gray-400);
-  --text-muted: var(--gray-600);
-
-  --border-color: var(--gray-800);
-  --border-hover: var(--gray-600);
-
-  --accent: var(--white);
-  --error: #dc2626;
-  --warning: #ca8a04;
-
-  /* Sizing */
-  --header-height: 100px;
-  --footer-height: 80px;
-  --panel-gap: 1px;
-  --radius: 0;
-  --radius-sm: 0;
+  color: #f4f7ff;
+  background: #0b1426;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
 }
 
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at 50% -10%, rgba(80, 126, 211, 0.22), transparent 42rem),
+    #0b1426;
 }
 
 body {
-  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  min-width: 320px;
   min-height: 100vh;
-  line-height: 1.6;
+  margin: 0;
 }
 
-.app {
-  position: relative;
-  z-index: 1;
-  min-height: 100vh;
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.release-shell {
   display: flex;
-  flex-direction: column;
-  max-width: 1800px;
+  width: min(1060px, calc(100% - 40px));
+  min-height: 100vh;
   margin: 0 auto;
-  padding: 0.75rem 1.25rem;
-}
-
-/* Header — a single slim line; the editor is the star of the page. */
-.header {
-  text-align: left;
-  padding: 0.25rem 0 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.header h1 {
-  font-size: 0.9rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.lean-logo {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-/* Controls */
-.controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  border: 1px solid var(--border-color);
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.btn:hover:not(:disabled) {
-  border-color: var(--text-primary);
-  background: var(--text-primary);
-  color: var(--bg-primary);
-}
-
-.btn-primary {
-  background: var(--text-primary);
-  color: var(--bg-primary);
-  border-color: var(--text-primary);
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: transparent;
-  color: var(--text-primary);
-}
-
-.btn-primary:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background: transparent;
-  color: var(--text-secondary);
-  border-color: var(--border-color);
-}
-
-.btn-secondary:hover {
-  border-color: var(--text-primary);
-  color: var(--text-primary);
-}
-
-.btn-small {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border-color);
-}
-
-.btn-small:hover {
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
-}
-
-/* Example picker, sits right of Run Code */
-.example-select {
-  padding: 0.5rem 0.6rem;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 0.8125rem;
-  border: 1px solid var(--border-color);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.example-select:hover:not(:disabled) {
-  border-color: var(--text-primary);
-  color: var(--text-primary);
-}
-
-.example-select:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.example-select option {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-/* Libraries dropdown (native <details>) */
-.lib-dropdown {
-  position: relative;
-  display: inline-block;
-}
-.lib-dropdown > summary {
-  list-style: none;
-  user-select: none;
-}
-.lib-dropdown > summary::-webkit-details-marker { display: none; }
-.lib-dropdown > summary::after {
-  content: ' ▾';
-  opacity: 0.6;
-}
-.lib-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 260px;
-  padding: 0.4rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
-}
-.lib-menu-hint {
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  opacity: 0.75;
-  padding: 0.25rem 0.4rem 0.4rem;
-  line-height: 1.4;
-}
-.lib-menu-hint code {
-  font-family: 'IBM Plex Mono', monospace;
-  opacity: 0.9;
-}
-.lib-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem;
-  cursor: pointer;
-  font-size: 0.8125rem;
-}
-.lib-item:hover { background: var(--bg-secondary, rgba(255,255,255,0.04)); }
-.lib-item input { cursor: pointer; }
-.lib-item-label { color: var(--text-primary); }
-.lib-size {
-  margin-left: auto;
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  opacity: 0.7;
-  font-family: 'IBM Plex Mono', monospace;
-}
-
-.status {
-  margin-left: auto;
-  font-weight: 500;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-}
-
-.status-idle {
-  color: var(--text-muted);
-}
-
-.status-loading {
-  color: var(--text-secondary);
-}
-
-.status-ready {
-  color: var(--text-primary);
-}
-
-.status-running {
-  color: var(--text-secondary);
-}
-
-.status-error {
-  color: var(--error);
-}
-
-/* Loading */
-.loading {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-}
-
-.spinner {
-  width: 14px;
-  height: 14px;
-  border: 1.5px solid var(--border-color);
-  border-top-color: var(--text-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Preload progress bar (shown while the library + WASM download on page load) */
-.preload {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex: 1;
-  min-width: 0;
-}
-
-.progress-bar {
-  flex: 1;
-  max-width: 340px;
-  height: 6px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--text-primary);
-  border-radius: 999px;
-  transition: width 0.2s ease;
-}
-
-.preload-label {
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Warning */
-.warning {
-  background: transparent;
-  border: 1px solid var(--warning);
-  padding: 1rem;
-  margin-bottom: 1rem;
-  color: var(--warning);
-  font-size: 0.875rem;
-}
-
-.warning code {
-  display: block;
-  background: var(--bg-surface);
-  padding: 0.5rem;
-  margin-top: 0.5rem;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-}
-
-/* Main content */
-.main {
-  flex: 1;
-  display: flex;
+  padding: clamp(64px, 11vh, 120px) 0 48px;
   flex-direction: column;
+  justify-content: center;
 }
 
-/* Editor container — fill the viewport below the slim chrome. The code panel
-   gets the lion's share; output is a narrower side column. */
-.editor-container {
-  flex: 1;
+.hero {
+  max-width: 760px;
+  margin-bottom: 44px;
+}
+
+.kicker,
+.game-eyebrow {
+  margin: 0;
+  color: #8bbcff;
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 12px 0 16px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.65rem, 7vw, 5.3rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.intro {
+  max-width: 650px;
+  margin: 0;
+  color: #b4c1d8;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.65;
+}
+
+.game-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: var(--panel-gap);
-  min-height: max(500px, calc(100vh - 240px));
-  border: 1px solid var(--border-color);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
 }
 
-@media (max-width: 900px) {
-  .editor-container {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-
-  .panel {
-    min-height: 300px;
-  }
+.game-card.visual {
+  background:
+    radial-gradient(circle at 90% 0%, rgba(151, 92, 225, 0.18), transparent 55%),
+    rgba(42, 28, 68, 0.88);
+  border-color: #604782;
 }
 
-.panel {
+.game-card.visual .game-eyebrow {
+  color: #c4a4f5;
+}
+
+.game-card.visual .game-action {
+  color: #d0b4ff;
+}
+
+.game-card.visual:hover,
+.game-card.visual:focus-visible {
+  background:
+    radial-gradient(circle at 90% 0%, rgba(166, 103, 240, 0.24), transparent 55%),
+    rgba(53, 34, 84, 0.96);
+  border-color: #a47ae0;
+}
+
+.game-card {
   display: flex;
+  min-height: 270px;
+  padding: clamp(26px, 4vw, 38px);
+  color: inherit;
+  background: rgba(20, 34, 58, 0.84);
+  border: 1px solid #304564;
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
   flex-direction: column;
-  background: var(--bg-card);
-  overflow: hidden;
-}
-
-.panel:first-child {
-  border-right: 1px solid var(--border-color);
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-color);
-  font-weight: 500;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-/* Editor: a highlighted <pre> layer behind a transparent <textarea>. Both share
-   identical box + text metrics so the caret and glyphs line up exactly; the
-   textarea's text is transparent and only its caret shows. */
-.code-editor-wrap {
-  position: relative;
-  flex: 1;
-  overflow: hidden;
-  background: var(--bg-primary);
-}
-
-.code-editor,
-.code-highlight {
-  margin: 0;
-  padding: 1rem;
-  border: none;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 13px;
-  line-height: 1.7;
-  tab-size: 2;
-  white-space: pre;
-  overflow-wrap: normal;
-}
-
-.code-highlight {
-  position: absolute;
-  inset: 0;
-  overflow: hidden; /* scroll is mirrored from the textarea in JS */
-  color: var(--text-primary);
-  pointer-events: none;
-}
-
-.code-highlight code {
-  font: inherit;
-}
-
-.code-editor {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  resize: none;
-  overflow: auto;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--text-primary);
-}
-
-.code-editor:focus {
-  outline: none;
-}
-
-.code-editor::placeholder {
-  color: var(--text-muted);
-}
-
-/* The editor's text is transparent (the colours come from the .code-highlight
-   layer behind it). The global ::selection is opaque grey, which would paint over
-   that layer and hide the code — so give the editor a translucent selection the
-   highlight shows through. */
-.code-editor::selection {
-  background: rgba(122, 162, 247, 0.3);
-}
-.code-editor::-moz-selection {
-  background: rgba(122, 162, 247, 0.3);
-}
-
-/* Lean token colours (see leanHighlight.ts) */
-.tok-keyword { color: #7aa2f7; }
-.tok-command { color: #bb9af7; }
-.tok-tactic  { color: #7dcfff; }
-.tok-type    { color: #2ac3de; }
-.tok-string  { color: #9ece6a; }
-.tok-number  { color: #ff9e64; }
-.tok-attr    { color: #e0af68; }
-.tok-comment { color: #6b7089; font-style: italic; }
-
-.output {
-  flex: 1;
-  margin: 0;
-  padding: 1rem;
-  background: var(--bg-primary);
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 12px;
-  line-height: 1.7;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.output-text {
-  color: var(--text-primary);
-}
-
-.output-error {
-  color: var(--error);
-}
-
-.output-placeholder {
-  color: var(--text-muted);
-}
-
-/* Footer */
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  padding: 1.5rem 0 0.5rem;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  border-top: 1px solid var(--border-color);
-  margin-top: 2rem;
-}
-
-.footer-tools {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.footer-meta {
-  margin: 0;
-}
-
-.footer-meta a {
-  color: var(--text-secondary);
   text-decoration: none;
-  border-bottom: 1px solid var(--border-color);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
 }
 
-.footer-meta a:hover {
-  color: var(--text-primary);
-  border-bottom-color: var(--text-primary);
+.game-card:hover,
+.game-card:focus-visible {
+  background: rgba(26, 43, 72, 0.94);
+  border-color: #6da8ff;
+  outline: none;
+  transform: translateY(-3px);
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+.game-card h2 {
+  margin: 17px 0 11px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.65rem, 3.2vw, 2.25rem);
+  font-weight: 500;
+  line-height: 1.15;
 }
 
-::-webkit-scrollbar-track {
-  background: var(--bg-primary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--gray-800);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-700);
-}
-
-/* Selection */
-::selection {
-  background: var(--gray-700);
-}
-
-/* Diagnostics display */
-.diagnostics {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.diagnostic {
-  padding: 0.5rem 0.75rem;
-  border-left: 2px solid var(--gray-600);
-  background: var(--bg-surface);
-}
-
-.diagnostic-information {
-  border-left-color: #3b82f6;
-}
-
-.diagnostic-warning {
-  border-left-color: var(--warning);
-}
-
-.diagnostic-error {
-  border-left-color: var(--error);
-}
-
-.diagnostic-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.25rem;
-}
-
-.diagnostic-pos {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  font-family: 'IBM Plex Mono', monospace;
-}
-
-.diagnostic-badge {
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0.1rem 0.3rem;
-  border-radius: 2px;
-}
-
-.diagnostic-badge-information {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-}
-
-.diagnostic-badge-warning {
-  background: rgba(202, 138, 4, 0.2);
-  color: var(--warning);
-}
-
-.diagnostic-badge-error {
-  background: rgba(220, 38, 38, 0.2);
-  color: var(--error);
-}
-
-.diagnostic-data {
-  color: var(--text-primary);
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-
-.raw-output {
-  color: var(--text-secondary);
-  font-size: 0.75rem;
+.game-card p {
+  margin: 0 0 28px;
+  color: #aebbd1;
   line-height: 1.6;
 }
-/* ── Monaco editor + file tabs ── */
-.file-tabs {
+
+.game-action {
   display: flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 4px 6px 0;
-  background: #0f0f0f;
-  border-bottom: 1px solid #262626;
-  overflow-x: auto;
-}
-.file-tab {
-  display: flex;
+  margin-top: auto;
+  color: #9fc8ff;
+  font-weight: 700;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font-size: 0.78rem;
-  font-family: 'IBM Plex Mono', monospace;
-  color: #8a8a8a;
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: 4px 4px 0 0;
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
+  justify-content: space-between;
 }
-.file-tab:hover { color: #d4d4d4; }
-.file-tab-active {
-  color: #f5f5f5;
-  background: #0a0a0a;
-  border-color: #262626;
+
+.local-note {
+  margin: 28px 0 0;
+  color: #7788a3;
+  font-size: 0.86rem;
+  text-align: center;
 }
-.file-tab-close {
-  border: none;
-  background: none;
-  color: #666;
-  font-size: 0.9rem;
-  line-height: 1;
-  padding: 0 2px;
-  cursor: pointer;
-}
-.file-tab-close:hover { color: #f14c4c; }
-.file-tab-add {
-  border: none;
-  background: none;
-  color: #8a8a8a;
-  font-size: 1rem;
-  padding: 0 8px;
-  cursor: pointer;
-}
-.file-tab-add:hover { color: #f5f5f5; }
-.monaco-host {
-  position: absolute;
-  inset: 0;
+
+@media (max-width: 700px) {
+  .release-shell {
+    width: min(100% - 28px, 520px);
+    padding-top: 48px;
+    justify-content: flex-start;
+  }
+
+  .hero {
+    margin-bottom: 30px;
+  }
+
+  .game-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .game-card {
+    min-height: 225px;
+  }
 }

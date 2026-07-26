@@ -2,7 +2,7 @@
 
 Integration tests that boot the **real Lean WASM compiler headless in Node** (no
 browser) and check it compiles a suite of Lean snippets correctly — famous
-Natural Number Game–style induction proofs, computation checks, and error cases
+Natural Numbers Game–style induction proofs, computation checks, and error cases
 that must be rejected.
 
 There's no smaller "unit" to test: the thing under test *is* the Lean WASM

@@ -13,16 +13,69 @@
 import fs from 'fs';
 import path from 'path';
 
-// Parse import statements from Lean source
+// Remove nested Lean comments before looking for import commands. In
+// particular, Lean's own API documentation contains fenced examples such as
+// `public import Lean`; treating those as real imports expands almost every
+// useful module to the entire standard library.
+function stripLeanComments(content) {
+  let result = '';
+  let blockDepth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < content.length; i += 1) {
+    const ch = content[i];
+    const next = content[i + 1];
+
+    if (blockDepth > 0) {
+      if (ch === '/' && next === '-') {
+        blockDepth += 1;
+        result += '  ';
+        i += 1;
+      } else if (ch === '-' && next === '/') {
+        blockDepth -= 1;
+        result += '  ';
+        i += 1;
+      } else {
+        result += ch === '\n' || ch === '\r' ? ch : ' ';
+      }
+      continue;
+    }
+
+    if (!inString && ch === '/' && next === '-') {
+      blockDepth = 1;
+      result += '  ';
+      i += 1;
+      continue;
+    }
+    if (!inString && ch === '-' && next === '-') {
+      while (i < content.length && content[i] !== '\n') {
+        result += ' ';
+        i += 1;
+      }
+      if (i < content.length) result += content[i];
+      continue;
+    }
+
+    result += ch;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    }
+  }
+  return result;
+}
+
+// Parse import statements from comment-free Lean source.
 function parseImports(content) {
   const imports = [];
-  const lines = content.split('\n');
+  const lines = stripLeanComments(content).split('\n');
   
   for (const line of lines) {
     const trimmed = line.trim();
-    
-    // Skip comments
-    if (trimmed.startsWith('--') || trimmed.startsWith('/-')) continue;
     
     // Match various import forms:
     // import Foo.Bar

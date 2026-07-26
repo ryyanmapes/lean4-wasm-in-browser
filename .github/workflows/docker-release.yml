@@ -1,0 +1,178 @@
+name: Browser game Docker release
+run-name: Build browser game image
+
+on:
+  workflow_dispatch:
+    inputs:
+      lean4game_ref:
+        description: lean4game branch, tag, or SHA
+        required: false
+        default: main
+        type: string
+      nng4_ref:
+        description: NNG4 branch, tag, or SHA
+        required: false
+        default: main
+        type: string
+      visualtest_ref:
+        description: VisualTest branch, tag, or SHA
+        required: false
+        default: main
+        type: string
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: browser-docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-runtime:
+    name: Build Lean WASM snapshot artifact
+    uses: ryyanmapes/lean4game/.github/workflows/build-browser-lean-libs.yml@main
+    with:
+      lean4game_ref: ${{ inputs.lean4game_ref || 'main' }}
+      nng4_ref: ${{ inputs.nng4_ref || 'main' }}
+      include_nng4: true
+    secrets:
+      CAULI_ARTIFACT_TOKEN: ${{ secrets.CAULI_ARTIFACT_TOKEN }}
+
+  docker:
+    name: Assemble and publish browser game
+    needs: browser-runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out lean4.js release shell
+        uses: actions/checkout@v4
+        with:
+          path: lean4.js
+
+      - name: Check out Lean4Game client
+        uses: actions/checkout@v4
+        with:
+          repository: ryyanmapes/lean4game
+          ref: ${{ inputs.lean4game_ref || 'main' }}
+          path: Lean4Game/lean4game
+
+      - name: Check out NNG4
+        uses: actions/checkout@v4
+        with:
+          repository: ryyanmapes/NNG4
+          ref: ${{ inputs.nng4_ref || 'main' }}
+          path: Lean4Game/NNG4
+
+      - name: Check out VisualTest
+        uses: actions/checkout@v4
+        with:
+          repository: ryyanmapes/VisualTest
+          ref: ${{ inputs.visualtest_ref || 'main' }}
+          path: Lean4Game/VisualTest
+
+      - name: Download Lean WASM runtime and snapshot
+        uses: actions/download-artifact@v4
+        with:
+          pattern: visual-lean-libs-*
+          merge-multiple: true
+          path: visual-lean-artifact
+
+      - name: Verify runtime artifact
+        run: |
+          test -s visual-lean-artifact/runtime/lean.js
+          test -s visual-lean-artifact/runtime/lean.wasm
+          test -s visual-lean-artifact/snapshots/game.snap.gz
+          du -sh visual-lean-artifact
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-
+            type=ref,event=tag
+          labels: |
+            org.opencontainers.image.title=The Natural Numbers Game
+            org.opencontainers.image.description=Browser-local NNG4 and Visual Lean, formally checked by Lean WASM
+
+      - name: Build and publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: lean4.js/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+
+      - name: Smoke-test the published image
+        shell: bash
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:latest
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          docker run --detach --name lean4-wasm-release-smoke --publish 8080:80 "$IMAGE"
+          cleanup() {
+            docker rm --force lean4-wasm-release-smoke >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8080/ >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs lean4-wasm-release-smoke
+              exit 1
+            fi
+            sleep 1
+          done
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/lean4game/index.html >/dev/null
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/lean4game/data/g/local/NNG4/game.json >/dev/null
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/lean4game/data/g/local/VisualTest/game.json >/dev/null
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/visual-lean/snapshots/game.snap.gz >/dev/null
+          curl --fail --silent --show-error --head http://127.0.0.1:8080/ \
+            | grep --ignore-case '^Cross-Origin-Opener-Policy: same-origin'
+          curl --fail --silent --show-error --head http://127.0.0.1:8080/ \
+            | grep --ignore-case '^Cross-Origin-Embedder-Policy: require-corp'
+
+      - name: Release summary
+        run: |
+          {
+            echo '### Published container'
+            echo
+            echo '```'
+            echo '${{ steps.meta.outputs.tags }}'
+            echo '```'
+            echo
+            echo 'Run with:'
+            echo
+            echo '```bash'
+            echo 'docker run --rm -p 8080:80 ghcr.io/${{ github.repository }}:latest'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

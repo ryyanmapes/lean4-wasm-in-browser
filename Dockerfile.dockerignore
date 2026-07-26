@@ -1,0 +1,21 @@
+**/.git
+**/.github
+**/.codex*
+**/.env*
+**/node_modules
+**/dist
+**/test-results
+**/cypress/screenshots
+**/cypress/videos
+**/.lake
+
+# Generated host copies are deliberately replaced inside the image.
+lean4.js/public/lean4game
+lean4.js/public/visual-lean
+lean4.js/public/lean-wasm*
+
+# Keep the downloaded Actions artifact despite the generic generated-file
+# exclusions above.
+!visual-lean-artifact
+!visual-lean-artifact/**
+

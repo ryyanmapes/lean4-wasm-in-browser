@@ -11,11 +11,33 @@ const coopCoep = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
 }
-export default defineConfig({
-  plugins: [react()],
-  server: { headers: coopCoep },
-  preview: { headers: coopCoep },
-  optimizeDeps: {
-    exclude: ['lean-wasm'], // Don't try to optimize the WASM module
+
+// Vite's HTML fallback treats `/lean4game/` as an application route and serves
+// the outer index.html, even though the original Lean4Game client is copied to
+// public/lean4game/index.html. Rewrite the directory URL before that fallback.
+const lean4GameSubApp = {
+  name: 'lean4game-sub-app',
+  configureServer(server: { middlewares: { use: (handler: (req: { url?: string }, res: unknown, next: () => void) => void) => void } }) {
+    server.middlewares.use((req, _res, next) => {
+      if (req.url === '/lean4game/' || req.url?.startsWith('/lean4game/?')) {
+        req.url = `/lean4game/index.html${req.url.slice('/lean4game/'.length)}`
+      }
+      next()
+    })
   },
+  configurePreviewServer(server: { middlewares: { use: (handler: (req: { url?: string }, res: unknown, next: () => void) => void) => void } }) {
+    server.middlewares.use((req, _res, next) => {
+      if (req.url === '/lean4game/' || req.url?.startsWith('/lean4game/?')) {
+        req.url = `/lean4game/index.html${req.url.slice('/lean4game/'.length)}`
+      }
+      next()
+    })
+  },
+}
+export default defineConfig({
+  plugins: [lean4GameSubApp, react()],
+  server: {
+    headers: coopCoep,
+  },
+  preview: { headers: coopCoep },
 })

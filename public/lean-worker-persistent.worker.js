@@ -15,6 +15,7 @@ Error.stackTraceLimit = 1000;
 let libraryFiles = [];
 let moduleReady = false;
 let compileBusy = false;
+let compileDiagnostics = null;
 
 const assetBase = (new URLSearchParams(location.search).get('assetBase') || '/lean-wasm').replace(/\/$/, '');
 // Per-build version, appended to lean.js/lean.wasm so each build is a distinct
@@ -54,7 +55,10 @@ function pickWasmMemory() {
   // there — start at 1GB and step down.
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const candidates = isIOS ? [1024, 768, 512] : [2048, 1536, 1024, 768];
+  const requestedMemoryMb = Number(new URLSearchParams(location.search).get('memoryMB'));
+  const candidates = Number.isFinite(requestedMemoryMb) && requestedMemoryMb > 0
+    ? [requestedMemoryMb, 1024, 768, 512].filter((value, index, values) => values.indexOf(value) === index)
+    : isIOS ? [1024, 768, 512] : [2048, 1536, 1024, 768];
   for (const mb of candidates) {
     try {
       const memory = new WebAssembly.Memory({ initial: (mb * 1024 * 1024) / PAGE, maximum: 32768, shared: true });
@@ -95,24 +99,40 @@ function compileCode(code, fileName) {
   if (!moduleReady) return { success: false, error: 'Module not ready' };
   if (compileBusy) return { success: false, error: 'Compile already in progress' };
   compileBusy = true;
+  const diagnostics = [];
+  compileDiagnostics = diagnostics;
   const t0 = performance.now();
   try {
     const codeObj = mkLeanString(code);
     const fnameObj = mkLeanString(fileName || '/workspace/input.lean');
     const resObj = Module._lean_wasm_compile(codeObj, fnameObj);
     const elapsed = performance.now() - t0;
-    // IO result: ctor tag byte at offset 7 (0 = ok, else error).
-    const tag = Module.getValue(resObj + 7, 'i8') & 0xff;
-    console.log(`[COMPILE] done in ${elapsed.toFixed(0)}ms (tag ${tag})`);
-    if (tag !== 0) {
-      try { Module._lean_io_result_show_error(resObj); } catch (e) { /* ignore */ }
-      return { success: false, error: 'lean_wasm_compile returned an IO error (see output)', elapsed };
-    }
-    return { success: true, elapsed };
+    // wasmCompile deliberately returns status 1 when elaboration produced Lean
+    // diagnostics (most importantly the expected `unsolved goals` diagnostic).
+    // Those diagnostics were already emitted as JSON and are the proof-state
+    // payload. Calling lean_io_result_show_error here mistakes that status for
+    // an IO exception and fatally exits Emscripten, preventing the next move.
+    const status = Module.getValue(resObj + 7, 'i8') & 0xff;
+    console.log(`[COMPILE] done in ${elapsed.toFixed(0)}ms (status ${status})`);
+    return { success: true, status, elapsed, diagnostics };
   } catch (e) {
+    // Never turn a process exit into a successful proof. A custom elaborator
+    // can abort after emitting no diagnostic (for example an ABI assertion),
+    // and treating that as success would incorrectly mark an unchecked level
+    // complete. Ordinary incomplete proofs return normally with diagnostics.
+    if (/Program terminated with exit\(1\)/.test((e && e.message) || String(e))) {
+      return {
+        success: false,
+        status: 1,
+        elapsed: performance.now() - t0,
+        diagnostics,
+        error: 'Lean WASM terminated while checking the proof',
+      };
+    }
     console.error('[COMPILE] threw:', e);
-    return { success: false, error: (e && e.message) || String(e) };
+    return { success: false, error: (e && e.message) || String(e), diagnostics };
   } finally {
+    compileDiagnostics = null;
     compileBusy = false;
   }
 }
@@ -156,9 +176,24 @@ async function loadSnapshot(name, url) {
   try {
     const response = await fetch(url);
     if (!response.ok || !response.body) return { success: false, error: `snapshot fetch: ${response.status}` };
-    const total = Number(response.headers.get('content-length')) || 0;
+    // Fetch transparently decodes HTTP `Content-Encoding: gzip` (as Vite and
+    // most static hosts serve `.gz` assets). Only decode manually when the
+    // host serves the gzip bytes without that response header.
+    const encodedByHttp = /\bgzip\b/iu.test(response.headers.get('content-encoding') || '');
+    const needsManualDecompression = /\.gz(?:\?|$)/u.test(url) && !encodedByHttp;
+    if (needsManualDecompression && typeof DecompressionStream === 'undefined') {
+      return { success: false, error: 'This browser cannot stream gzip snapshots' };
+    }
+    // Stream decompression directly into MEMFS.  This avoids retaining a
+    // compressed ArrayBuffer alongside the restored Lean environment.
+    const body = needsManualDecompression
+      ? response.body.pipeThrough(new DecompressionStream('gzip'))
+      : response.body;
+    const total = (needsManualDecompression || encodedByHttp)
+      ? 0
+      : Number(response.headers.get('content-length')) || 0;
     try { FS.mkdir('/snapshots'); } catch (e) { /* exists */ }
-    const reader = response.body.getReader();
+    const reader = body.getReader();
     const stream = FS.open(p, 'w');
     let received = 0;
     let lastReport = 0;
@@ -207,15 +242,24 @@ async function loadSnapshot(name, url) {
 }
 
 function startLeanModule() {
+  self.postMessage({ type: 'startup_stage', data: 'configuring runtime' });
   self.Module = {
-    // 4.28 ships a 16MB memory cap (patched to 2GB MAX in lean.wasm); the
-    // probed memory below is as much as the device grants (2GB on desktop).
-    ...(function () { const p = pickWasmMemory(); return p ? { wasmMemory: p.memory, INITIAL_MEMORY: p.bytes } : {}; })(),
+    // The paired runtime owns its shared, growable memory declaration (64MB
+    // initially, 4GB maximum). Its maximum must match the pthread module.
     locateFile: (path) => assetBase + '/' + path + assetQ,
     // Tell Emscripten where the runtime script is, so the pthread sub-workers
     // this Worker spawns can load lean.js (the Worker's own script is this file).
     mainScriptUrlOrBlob: assetBase + '/lean.js' + assetQ,
-    print: (text) => { if (reportImportProgress(text)) return; if (isDebugLine(text)) console.log(text); else self.postMessage({ type: 'stdout', data: text }); },
+    print: (text) => {
+      if (reportImportProgress(text)) return;
+      if (isDebugLine(text)) console.log(text);
+      else {
+        if (compileDiagnostics) {
+          try { compileDiagnostics.push(JSON.parse(String(text))); } catch (e) { /* not a diagnostic */ }
+        }
+        self.postMessage({ type: 'stdout', data: text });
+      }
+    },
     printErr: (text) => { if (reportImportProgress(text)) return; if (isDebugLine(text)) console.log(text); else self.postMessage({ type: 'stderr', data: text }); },
     setStatus: (text) => { if (text) self.postMessage({ type: 'progress', data: text }); },
     noInitialRun: true,
@@ -233,10 +277,16 @@ function startLeanModule() {
 
     onRuntimeInitialized: function () {
       try {
+        self.postMessage({ type: 'startup_stage', data: 'initializing Lean runtime' });
         Module._lean_initialize_runtime_module();
         Module._lean_initialize();
         Module._lean_io_mark_end_initialization();
         if (Module._lean_init_task_manager) Module._lean_init_task_manager();
+        // Hold the Emscripten runtime for the worker's lifetime. Incomplete Lean
+        // proofs intentionally return process status 1 after emitting their
+        // `unsolved goals` diagnostics; without this keepalive, that status
+        // destroys the heap and pthread pool before the player's next move.
+        Module.runtimeKeepalivePush();
         if (Module._lean_enable_initializer_execution) Module._lean_enable_initializer_execution();
         const spRes = Module._lean_init_search_path();
         if ((Module.getValue(spRes + 7, 'i8') & 0xff) !== 0) {
@@ -244,6 +294,7 @@ function startLeanModule() {
           throw new Error('lean_init_search_path failed (see stderr)');
         }
         moduleReady = true;
+        self.postMessage({ type: 'startup_stage', data: 'Lean runtime ready' });
         self.postMessage({ type: 'worker_ready' });
       } catch (e) {
         self.postMessage({ type: 'error', data: 'Lean init failed: ' + ((e && e.message) || e) });
@@ -257,7 +308,9 @@ function startLeanModule() {
   };
 
   try {
+    self.postMessage({ type: 'startup_stage', data: 'loading runtime script' });
     importScripts(assetBase + '/lean.js' + assetQ);
+    self.postMessage({ type: 'startup_stage', data: 'runtime script loaded' });
   } catch (e) {
     self.postMessage({ type: 'error', data: 'Failed to load lean.js: ' + ((e && e.message) || e) });
   }
