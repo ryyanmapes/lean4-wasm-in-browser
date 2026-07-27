@@ -8,37 +8,6 @@
 #   Lean4Game/VisualTest/
 #   visual-lean-artifact/
 
-FROM ubuntu:22.04 AS game-data-builder
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get update \
-  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates curl git libatomic1 \
-  && rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSL https://elan.lean-lang.org/elan-init.sh \
-  | sh -s -- -y --default-toolchain none
-ENV PATH="/root/.elan/bin:${PATH}"
-
-WORKDIR /workspace
-COPY Lean4Game/lean4game/server ./Lean4Game/lean4game/server
-COPY Lean4Game/NNG4 ./Lean4Game/NNG4
-COPY Lean4Game/VisualTest ./Lean4Game/VisualTest
-
-WORKDIR /workspace/Lean4Game/NNG4
-RUN TOOLCHAIN="$(tr -d '\r\n' < lean-toolchain)" \
-  && elan toolchain install "${TOOLCHAIN}" \
-  && lake exe cache get \
-  && lake build \
-  && test -s .lake/gamedata/game.json
-
-WORKDIR /workspace/Lean4Game/VisualTest
-RUN TOOLCHAIN="$(tr -d '\r\n' < lean-toolchain)" \
-  && elan toolchain install "${TOOLCHAIN}" \
-  && lake update \
-  && lake build \
-  && test -s .lake/gamedata/game.json
-
-
 FROM node:22-bookworm-slim AS web-builder
 
 RUN apt-get update \
@@ -51,16 +20,13 @@ COPY Lean4Game/lean4game ./Lean4Game/lean4game
 COPY Lean4Game/NNG4 ./Lean4Game/NNG4
 COPY Lean4Game/VisualTest ./Lean4Game/VisualTest
 
-COPY --from=game-data-builder \
-  /workspace/Lean4Game/NNG4/.lake/gamedata \
-  ./Lean4Game/NNG4/.lake/gamedata
-COPY --from=game-data-builder \
-  /workspace/Lean4Game/VisualTest/.lake/gamedata \
-  ./Lean4Game/VisualTest/.lake/gamedata
-
 # The reusable Lean4Game workflow produces this directory. Keep the runtime
 # and snapshot together: saved Lean environments are binary-build-specific.
-COPY visual-lean-artifact/ ./lean4.js/public/visual-lean/
+COPY visual-lean-artifact/runtime/ ./lean4.js/public/visual-lean/runtime/
+COPY visual-lean-artifact/snapshots/ ./lean4.js/public/visual-lean/snapshots/
+COPY visual-lean-artifact/build-info.json ./lean4.js/public/visual-lean/build-info.json
+COPY visual-lean-artifact/gamedata/NNG4/ ./Lean4Game/NNG4/.lake/gamedata/
+COPY visual-lean-artifact/gamedata/VisualTest/ ./Lean4Game/VisualTest/.lake/gamedata/
 
 WORKDIR /workspace/Lean4Game/lean4game
 RUN npm ci

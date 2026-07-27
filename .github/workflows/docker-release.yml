@@ -34,6 +34,7 @@ jobs:
     with:
       lean4game_ref: ${{ inputs.lean4game_ref || 'main' }}
       nng4_ref: ${{ inputs.nng4_ref || 'main' }}
+      visualtest_ref: ${{ inputs.visualtest_ref || 'main' }}
       include_nng4: true
     secrets:
       CAULI_ARTIFACT_TOKEN: ${{ secrets.CAULI_ARTIFACT_TOKEN }}
@@ -86,6 +87,8 @@ jobs:
           test -s visual-lean-artifact/runtime/lean.js
           test -s visual-lean-artifact/runtime/lean.wasm
           test -s visual-lean-artifact/snapshots/game.snap.gz
+          test -s visual-lean-artifact/gamedata/NNG4/game.json
+          test -s visual-lean-artifact/gamedata/VisualTest/game.json
           du -sh visual-lean-artifact
 
       - name: Set up Docker Buildx
