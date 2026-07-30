@@ -164,7 +164,11 @@ self.onmessage = (event) => {
 // lean.wasm (its closure relocation is only valid for that binary), which the
 // app guarantees by requesting it under the same ?v= as the binary itself.
 //
-// The worker fetches and streams the file into MEMFS itself: the ~240MB never
+// The worker fetches and decompresses the snapshot off the main thread. New
+// runtimes mount the result through WORKERFS so it does not occupy MEMFS while
+// Lean maps the compact region; older artifacts retain the streaming fallback.
+//
+// Previously the worker streamed the file into MEMFS: the ~240MB never
 // exists as one JS buffer, let alone two (download + structured-clone copy on
 // the main thread). Memory-starved tabs — iOS Safari — live or die on that
 // peak, and everyone else parses the page while the download proceeds here.
@@ -173,6 +177,7 @@ async function loadSnapshot(name, url) {
   const t0 = performance.now();
   const FS = Module.FS;
   const p = '/snapshots/' + (name || 'init.snap');
+  let mountedWorkerFs = false;
   try {
     const response = await fetch(url);
     if (!response.ok || !response.body) return { success: false, error: `snapshot fetch: ${response.status}` };
@@ -210,32 +215,54 @@ async function loadSnapshot(name, url) {
     // it, so its compressed Content-Length cannot be compared with body bytes.
     const total = encodedByHttp ? 0 : contentLength;
     try { FS.mkdir('/snapshots'); } catch (e) { /* exists */ }
-    const reader = body.getReader();
-    const stream = FS.open(p, 'w');
     let received = 0;
-    let lastReport = 0;
-    let first = true;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      // Guard against an SPA fallback page served with 200: snapshots are
-      // compacted-region files and start with the olean magic.
-      if (first) {
-        first = false;
-        if (value.length < 5 || value[0] !== 0x6f || value[1] !== 0x6c || value[2] !== 0x65 || value[3] !== 0x61 || value[4] !== 0x6e) {
-          FS.close(stream);
-          try { FS.unlink(p); } catch (e) { /* ignore */ }
-          return { success: false, error: 'snapshot fetch returned non-olean content' };
+
+    // WORKERFS exposes Blob-backed files without first copying their complete
+    // contents into the WASM heap. That removes a roughly 475MB peak allocation
+    // while Lean maps/restores this snapshot, which is critical on mobile.
+    if (typeof WORKERFS === 'object' && typeof Blob !== 'undefined') {
+      const snapshotBlob = await new Response(body).blob();
+      received = snapshotBlob.size;
+      const magic = new Uint8Array(await snapshotBlob.slice(0, 5).arrayBuffer());
+      if (magic.length < 5 || magic[0] !== 0x6f || magic[1] !== 0x6c || magic[2] !== 0x65 || magic[3] !== 0x61 || magic[4] !== 0x6e) {
+        return { success: false, error: 'snapshot fetch returned non-olean content' };
+      }
+      FS.mount(WORKERFS, {
+        blobs: [
+          { name: name || 'init.snap', data: snapshotBlob },
+          { name: (name || 'init.snap') + '.deps', data: new Blob(['[]']) },
+        ],
+      }, '/snapshots');
+      mountedWorkerFs = true;
+    } else {
+      const reader = body.getReader();
+      const stream = FS.open(p, 'w');
+      let lastReport = 0;
+      let first = true;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        // Guard against an SPA fallback page served with 200: snapshots are
+        // compacted-region files and start with the olean magic.
+        if (first) {
+          first = false;
+          if (value.length < 5 || value[0] !== 0x6f || value[1] !== 0x6c || value[2] !== 0x65 || value[3] !== 0x61 || value[4] !== 0x6e) {
+            FS.close(stream);
+            try { FS.unlink(p); } catch (e) { /* ignore */ }
+            return { success: false, error: 'snapshot fetch returned non-olean content' };
+          }
+        }
+        FS.write(stream, value, 0, value.length, received);
+        received += value.length;
+        if (!needsManualDecompression && received - lastReport > 8 * 1024 * 1024) {
+          lastReport = received;
+          self.postMessage({ type: 'snapshot_progress', received, total });
         }
       }
-      FS.write(stream, value, 0, value.length, received);
-      received += value.length;
-      if (!needsManualDecompression && received - lastReport > 8 * 1024 * 1024) {
-        lastReport = received;
-        self.postMessage({ type: 'snapshot_progress', received, total });
-      }
+      FS.close(stream);
+      // The loader reads a `<file>.deps` sidecar; self-contained snapshots use `[]`.
+      FS.writeFile(p + '.deps', new Uint8Array([0x5b, 0x5d]));
     }
-    FS.close(stream);
     if (needsManualDecompression) {
       self.postMessage({
         type: 'snapshot_progress',
@@ -245,8 +272,6 @@ async function loadSnapshot(name, url) {
     } else {
       self.postMessage({ type: 'snapshot_progress', received, total: total || received });
     }
-    // The loader reads a `<file>.deps` sidecar; self-contained snapshots use `[]`.
-    FS.writeFile(p + '.deps', new Uint8Array([0x5b, 0x5d]));
     const resObj = Module._lean_wasm_load_snapshot(mkLeanString(p));
     const tag = Module.getValue(resObj + 7, 'i8') & 0xff;
     // The ok value is a UInt32, which wasm32 heap-boxes: field 0 points to a
@@ -254,13 +279,23 @@ async function loadSnapshot(name, url) {
     const boxPtr = Module.getValue(resObj + 8, 'i32');
     const ret = Module.getValue(boxPtr + 8, 'i32');
     const success = tag === 0 && ret === 0;
-    // The MEMFS copy served its purpose; the env holds the loaded region.
-    try { FS.unlink(p); FS.unlink(p + '.deps'); } catch (e) { /* ignore */ }
+    // The Blob mount or MEMFS copy served its purpose; the environment holds
+    // the loaded compact region after this call returns.
+    if (mountedWorkerFs) {
+      try { FS.unmount('/snapshots'); } catch (e) { /* ignore */ }
+      mountedWorkerFs = false;
+    } else {
+      try { FS.unlink(p); FS.unlink(p + '.deps'); } catch (e) { /* ignore */ }
+    }
     const elapsed = performance.now() - t0;
     console.log(`[SNAPSHOT] load ${success ? 'ok' : 'FAILED'} in ${elapsed.toFixed(0)}ms (tag ${tag}, ret ${ret})`);
     return { success, elapsed };
   } catch (e) {
-    try { FS.unlink(p); } catch (e2) { /* ignore */ }
+    if (mountedWorkerFs) {
+      try { FS.unmount('/snapshots'); } catch (e2) { /* ignore */ }
+    } else {
+      try { FS.unlink(p); } catch (e2) { /* ignore */ }
+    }
     console.error('[SNAPSHOT] threw:', e);
     return { success: false, error: (e && e.message) || String(e) };
   }
