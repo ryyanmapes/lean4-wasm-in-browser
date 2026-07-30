@@ -168,16 +168,55 @@ self.onmessage = (event) => {
 // runtimes mount the result through WORKERFS so it does not occupy MEMFS while
 // Lean maps the compact region; older artifacts retain the streaming fallback.
 //
-// Previously the worker streamed the file into MEMFS: the ~240MB never
-// exists as one JS buffer, let alone two (download + structured-clone copy on
-// the main thread). Memory-starved tabs — iOS Safari — live or die on that
-// peak, and everyone else parses the page while the download proceeds here.
+// OPFS-capable browsers stream the expanded snapshot to browser-managed disk;
+// the fallback still avoids transferring it through the page's main thread.
+async function streamSnapshotToOpfs(body, fileName) {
+  if (!navigator.storage || typeof navigator.storage.getDirectory !== 'function') return null;
+
+  const root = await navigator.storage.getDirectory();
+  const directory = await root.getDirectoryHandle('visual-lean-snapshots', { create: true });
+  const handle = await directory.getFileHandle(fileName, { create: true });
+  const writable = await handle.createWritable();
+  const reader = body.getReader();
+  let received = 0;
+  let first = true;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (first) {
+        first = false;
+        if (value.length < 5 || value[0] !== 0x6f || value[1] !== 0x6c || value[2] !== 0x65 || value[3] !== 0x61 || value[4] !== 0x6e) {
+          throw new Error('snapshot fetch returned non-olean content');
+        }
+      }
+      await writable.write(value);
+      received += value.length;
+    }
+    await writable.close();
+  } catch (error) {
+    try { await writable.abort(); } catch (abortError) { /* ignore */ }
+    try { await directory.removeEntry(fileName); } catch (removeError) { /* ignore */ }
+    throw error;
+  }
+
+  const file = await handle.getFile();
+  return {
+    file,
+    received,
+    cleanup: async () => {
+      try { await directory.removeEntry(fileName); } catch (error) { /* ignore */ }
+    },
+  };
+}
+
 async function loadSnapshot(name, url) {
   if (!moduleReady) return { success: false, error: 'Module not ready' };
   const t0 = performance.now();
   const FS = Module.FS;
   const p = '/snapshots/' + (name || 'init.snap');
   let mountedWorkerFs = false;
+  let removeOpfsSnapshot = null;
   try {
     const response = await fetch(url);
     if (!response.ok || !response.body) return { success: false, error: `snapshot fetch: ${response.status}` };
@@ -217,19 +256,32 @@ async function loadSnapshot(name, url) {
     try { FS.mkdir('/snapshots'); } catch (e) { /* exists */ }
     let received = 0;
 
-    // WORKERFS exposes Blob-backed files without first copying their complete
-    // contents into the WASM heap. That removes a roughly 475MB peak allocation
-    // while Lean maps/restores this snapshot, which is critical on mobile.
+    // Prefer an OPFS-backed File. Unlike Response.blob(), this streams the
+    // expanded 475MB snapshot to browser-managed disk without materializing it
+    // in the tab's memory before Lean begins restoration.
     if (typeof WORKERFS === 'object' && typeof Blob !== 'undefined') {
-      const snapshotBlob = await new Response(body).blob();
-      received = snapshotBlob.size;
-      const magic = new Uint8Array(await snapshotBlob.slice(0, 5).arrayBuffer());
-      if (magic.length < 5 || magic[0] !== 0x6f || magic[1] !== 0x6c || magic[2] !== 0x65 || magic[3] !== 0x61 || magic[4] !== 0x6e) {
-        return { success: false, error: 'snapshot fetch returned non-olean content' };
+      const fileName = name || 'init.snap';
+      const opfsSnapshot = await streamSnapshotToOpfs(body, fileName);
+      let snapshotFile;
+      let snapshotMount;
+      if (opfsSnapshot) {
+        snapshotFile = opfsSnapshot.file;
+        received = opfsSnapshot.received;
+        removeOpfsSnapshot = opfsSnapshot.cleanup;
+        snapshotMount = { files: [snapshotFile] };
+      } else {
+        snapshotFile = await new Response(body).blob();
+        received = snapshotFile.size;
+        const magic = new Uint8Array(await snapshotFile.slice(0, 5).arrayBuffer());
+        if (magic.length < 5 || magic[0] !== 0x6f || magic[1] !== 0x6c || magic[2] !== 0x65 || magic[3] !== 0x61 || magic[4] !== 0x6e) {
+          return { success: false, error: 'snapshot fetch returned non-olean content' };
+        }
+        snapshotMount = { blobs: [{ name: fileName, data: snapshotFile }] };
       }
       FS.mount(WORKERFS, {
+        ...snapshotMount,
         blobs: [
-          { name: name || 'init.snap', data: snapshotBlob },
+          ...(snapshotMount.blobs || []),
           { name: (name || 'init.snap') + '.deps', data: new Blob(['[]']) },
         ],
       }, '/snapshots');
@@ -284,6 +336,8 @@ async function loadSnapshot(name, url) {
     if (mountedWorkerFs) {
       try { FS.unmount('/snapshots'); } catch (e) { /* ignore */ }
       mountedWorkerFs = false;
+      if (removeOpfsSnapshot) await removeOpfsSnapshot();
+      removeOpfsSnapshot = null;
     } else {
       try { FS.unlink(p); FS.unlink(p + '.deps'); } catch (e) { /* ignore */ }
     }
@@ -296,6 +350,7 @@ async function loadSnapshot(name, url) {
     } else {
       try { FS.unlink(p); } catch (e2) { /* ignore */ }
     }
+    if (removeOpfsSnapshot) await removeOpfsSnapshot();
     console.error('[SNAPSHOT] threw:', e);
     return { success: false, error: (e && e.message) || String(e) };
   }
