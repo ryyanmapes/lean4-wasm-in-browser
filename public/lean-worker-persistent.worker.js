@@ -186,12 +186,29 @@ async function loadSnapshot(name, url) {
     }
     // Stream decompression directly into MEMFS.  This avoids retaining a
     // compressed ArrayBuffer alongside the restored Lean environment.
+    const contentLength = Number(response.headers.get('content-length')) || 0;
+    let compressedReceived = 0;
+    const compressedProgress = needsManualDecompression
+      ? new TransformStream({
+          transform(chunk, controller) {
+            compressedReceived += chunk.byteLength;
+            self.postMessage({
+              type: 'snapshot_progress',
+              received: compressedReceived,
+              total: contentLength,
+            });
+            controller.enqueue(chunk);
+          },
+        })
+      : null;
     const body = needsManualDecompression
-      ? response.body.pipeThrough(new DecompressionStream('gzip'))
+      ? response.body
+          .pipeThrough(compressedProgress)
+          .pipeThrough(new DecompressionStream('gzip'))
       : response.body;
-    const total = (needsManualDecompression || encodedByHttp)
-      ? 0
-      : Number(response.headers.get('content-length')) || 0;
+    // An HTTP Content-Encoding stream is transparently decoded before JS sees
+    // it, so its compressed Content-Length cannot be compared with body bytes.
+    const total = encodedByHttp ? 0 : contentLength;
     try { FS.mkdir('/snapshots'); } catch (e) { /* exists */ }
     const reader = body.getReader();
     const stream = FS.open(p, 'w');
@@ -213,13 +230,21 @@ async function loadSnapshot(name, url) {
       }
       FS.write(stream, value, 0, value.length, received);
       received += value.length;
-      if (received - lastReport > 8 * 1024 * 1024) {
+      if (!needsManualDecompression && received - lastReport > 8 * 1024 * 1024) {
         lastReport = received;
         self.postMessage({ type: 'snapshot_progress', received, total });
       }
     }
     FS.close(stream);
-    self.postMessage({ type: 'snapshot_progress', received, total: total || received });
+    if (needsManualDecompression) {
+      self.postMessage({
+        type: 'snapshot_progress',
+        received: compressedReceived,
+        total: contentLength || compressedReceived,
+      });
+    } else {
+      self.postMessage({ type: 'snapshot_progress', received, total: total || received });
+    }
     // The loader reads a `<file>.deps` sidecar; self-contained snapshots use `[]`.
     FS.writeFile(p + '.deps', new Uint8Array([0x5b, 0x5d]));
     const resObj = Module._lean_wasm_load_snapshot(mkLeanString(p));
