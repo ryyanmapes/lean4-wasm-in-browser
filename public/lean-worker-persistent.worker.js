@@ -156,8 +156,146 @@ self.onmessage = (event) => {
     loadSnapshot(msg.name, msg.url)
       .then((r) => self.postMessage({ type: 'snapshot_loaded', ...r }))
       .catch((e) => self.postMessage({ type: 'snapshot_loaded', success: false, error: (e && e.message) || String(e) }));
+  } else if (msg.type === 'load_module_bundle') {
+    loadModuleBundle(msg.url)
+      .then((r) => self.postMessage({ type: 'module_bundle_loaded', ...r }))
+      .catch((e) => self.postMessage({ type: 'module_bundle_loaded', success: false, error: (e && e.message) || String(e) }));
   }
 };
+
+function tarString(header, offset, length) {
+  let end = offset;
+  const limit = offset + length;
+  while (end < limit && header[end] !== 0) end++;
+  return new TextDecoder().decode(header.subarray(offset, end)).trim();
+}
+
+function tarSize(header) {
+  const value = tarString(header, 124, 12).replace(/\0.*$/u, '').trim();
+  return value ? Number.parseInt(value, 8) : 0;
+}
+
+function concatBytes(left, right) {
+  if (!left.byteLength) return right;
+  if (!right.byteLength) return left;
+  const combined = new Uint8Array(left.byteLength + right.byteLength);
+  combined.set(left, 0);
+  combined.set(right, left.byteLength);
+  return combined;
+}
+
+// Unpack the validated loose-module closure directly into MEMFS. Unlike a
+// saved Lean heap, this contains only .olean/.ir inputs and no serialized
+// environment or WASM function-table relocations. The parser consumes a USTAR
+// stream incrementally, retaining at most one fetch chunk plus a 512-byte
+// header while each file is written.
+async function loadModuleBundle(url) {
+  if (!moduleReady) return { success: false, error: 'Module not ready' };
+  const response = await fetch(url);
+  if (!response.ok || !response.body) {
+    return { success: false, error: `module bundle fetch: ${response.status}` };
+  }
+
+  const encodedByHttp = /\bgzip\b/iu.test(response.headers.get('content-encoding') || '');
+  const needsManualDecompression = /\.gz(?:\?|$)/u.test(url) && !encodedByHttp;
+  if (needsManualDecompression && typeof DecompressionStream === 'undefined') {
+    return { success: false, error: 'This browser cannot stream the module bundle' };
+  }
+
+  const contentLength = Number(response.headers.get('content-length')) || 0;
+  let downloaded = 0;
+  const progressStream = new TransformStream({
+    transform(chunk, controller) {
+      downloaded += chunk.byteLength;
+      self.postMessage({ type: 'module_bundle_progress', received: downloaded, total: contentLength });
+      controller.enqueue(chunk);
+    },
+  });
+  const body = needsManualDecompression
+    ? response.body.pipeThrough(progressStream).pipeThrough(new DecompressionStream('gzip'))
+    : response.body.pipeThrough(progressStream);
+
+  const FS = Module.FS;
+  const reader = body.getReader();
+  let pending = new Uint8Array(0);
+  let state = 'header';
+  let file = null;
+  let remaining = 0;
+  let padding = 0;
+  let files = 0;
+  let expanded = 0;
+  let archiveEnded = false;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done && !value) break;
+    pending = concatBytes(pending, value || new Uint8Array(0));
+
+    for (;;) {
+      if (state === 'header') {
+        if (pending.byteLength < 512) break;
+        const header = pending.subarray(0, 512);
+        pending = pending.subarray(512);
+        if (header.every((byte) => byte === 0)) {
+          archiveEnded = true;
+          break;
+        }
+        const name = tarString(header, 0, 100);
+        const prefix = tarString(header, 345, 155);
+        const relative = `${prefix ? prefix + '/' : ''}${name}`.replace(/^\.\//u, '');
+        const type = String.fromCharCode(header[156] || 0);
+        const size = tarSize(header);
+        if (!relative || relative.startsWith('/') || relative.split('/').includes('..')) {
+          throw new Error(`unsafe module bundle path: ${relative || '(empty)'}`);
+        }
+        if (type === '5') {
+          mkdirp(FS, '/lib/lean/' + relative.replace(/\/$/u, ''));
+          continue;
+        }
+        if (type !== '\0' && type !== '0') {
+          throw new Error(`unsupported module bundle entry type ${JSON.stringify(type)} for ${relative}`);
+        }
+        const target = '/lib/lean/' + relative;
+        mkdirp(FS, target.substring(0, target.lastIndexOf('/')));
+        file = FS.open(target, 'w');
+        remaining = size;
+        padding = (512 - (size % 512)) % 512;
+        files++;
+        state = remaining > 0 ? 'file' : 'padding';
+        if (remaining === 0) {
+          FS.close(file);
+          file = null;
+        }
+      } else if (state === 'file') {
+        if (!pending.byteLength) break;
+        const count = Math.min(remaining, pending.byteLength);
+        FS.write(file, pending, 0, count);
+        pending = pending.subarray(count);
+        remaining -= count;
+        expanded += count;
+        if (remaining === 0) {
+          FS.close(file);
+          file = null;
+          state = 'padding';
+        }
+      } else {
+        if (pending.byteLength < padding) break;
+        pending = pending.subarray(padding);
+        padding = 0;
+        state = 'header';
+      }
+    }
+    if (archiveEnded) break;
+  }
+
+  if (!archiveEnded || state !== 'header' || file) {
+    if (file) FS.close(file);
+    return { success: false, error: 'truncated module bundle' };
+  }
+  self.postMessage({ type: 'module_bundle_progress', received: downloaded, total: contentLength || downloaded });
+  console.log(`[MODULES] loaded ${files} files (${expanded} bytes) from ${downloaded} downloaded bytes`);
+  return { success: true, files, expanded };
+}
 
 // Seed Lean's environment cache from a baked `--incr-header-save` snapshot,
 // replacing the multi-minute Init import. The snapshot is githash-paired with

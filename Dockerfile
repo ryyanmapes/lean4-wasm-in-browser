@@ -24,6 +24,7 @@ COPY Lean4Game/VisualTest ./Lean4Game/VisualTest
 # and snapshot together: saved Lean environments are binary-build-specific.
 COPY visual-lean-artifact/runtime/ ./lean4.js/public/visual-lean/runtime/
 COPY visual-lean-artifact/snapshots/ ./lean4.js/public/visual-lean/snapshots/
+COPY visual-lean-artifact/modules/ ./lean4.js/public/visual-lean/modules/
 COPY visual-lean-artifact/build-info.json ./lean4.js/public/visual-lean/build-info.json
 COPY visual-lean-artifact/gamedata/NNG4/ ./Lean4Game/NNG4/.lake/gamedata/
 COPY visual-lean-artifact/gamedata/VisualTest/ ./Lean4Game/VisualTest/.lake/gamedata/
