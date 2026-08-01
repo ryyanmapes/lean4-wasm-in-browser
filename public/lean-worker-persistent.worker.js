@@ -245,6 +245,10 @@ async function loadModuleBundle(url) {
         const relative = `${prefix ? prefix + '/' : ''}${name}`.replace(/^\.\//u, '');
         const type = String.fromCharCode(header[156] || 0);
         const size = tarSize(header);
+        // `tar -C <directory> .` emits `./` as its first entry. It is only the
+        // archive's root directory marker, so normalization intentionally
+        // turns it into an empty relative path and there is nothing to create.
+        if (!relative && type === '5') continue;
         if (!relative || relative.startsWith('/') || relative.split('/').includes('..')) {
           throw new Error(`unsafe module bundle path: ${relative || '(empty)'}`);
         }

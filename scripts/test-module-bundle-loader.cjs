@@ -8,7 +8,7 @@ function writeAscii(buffer, offset, length, value) {
   Buffer.from(value, 'ascii').copy(buffer, offset, 0, length);
 }
 
-function tarEntry(name, contents) {
+function tarEntry(name, contents, type = '0') {
   const data = Buffer.from(contents);
   const header = Buffer.alloc(512);
   let shortName = name;
@@ -27,7 +27,7 @@ function tarEntry(name, contents) {
   writeAscii(header, 124, 12, data.length.toString(8).padStart(11, '0') + '\0');
   writeAscii(header, 136, 12, '00000000000\0');
   header.fill(0x20, 148, 156);
-  header[156] = '0'.charCodeAt(0);
+  header[156] = type.charCodeAt(0);
   writeAscii(header, 257, 6, 'ustar\0');
   writeAscii(header, 263, 2, '00');
   writeAscii(header, 345, 155, prefix);
@@ -45,6 +45,8 @@ const expected = new Map([
   ],
 ]);
 const archive = Buffer.concat([
+  // GNU/bsdtar include this root directory marker for `tar -C dir .`.
+  tarEntry('./', Buffer.alloc(0), '5'),
   ...[...expected].map(([name, contents]) => tarEntry(name, contents)),
   Buffer.alloc(1024),
 ]);
