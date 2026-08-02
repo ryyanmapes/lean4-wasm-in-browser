@@ -24,6 +24,11 @@ on:
         required: true
         default: false
         type: boolean
+      experimental_single_thread:
+        description: Publish an isolated non-pthread image without replacing latest
+        required: true
+        default: false
+        type: boolean
   push:
     tags:
       - "v*"
@@ -42,6 +47,7 @@ jobs:
       visualtest_ref: ${{ inputs.visualtest_ref || 'main' }}
       include_nng4: true
       experimental_size_profiles: ${{ inputs.experimental_mobile_modules || false }}
+      experimental_single_thread: ${{ inputs.experimental_single_thread || false }}
     secrets:
       CAULI_ARTIFACT_TOKEN: ${{ secrets.CAULI_ARTIFACT_TOKEN }}
 
@@ -117,7 +123,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !inputs.experimental_single_thread }}
+            type=raw,value=single-thread-experimental,enable=${{ inputs.experimental_single_thread }}
             type=sha,prefix=sha-
             type=ref,event=tag
           labels: |
@@ -140,7 +147,7 @@ jobs:
       - name: Smoke-test the published image
         shell: bash
         env:
-          IMAGE: ghcr.io/${{ github.repository }}:latest
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.experimental_single_thread && 'single-thread-experimental' || 'latest' }}
         run: |
           set -euo pipefail
           docker pull "$IMAGE"
@@ -177,6 +184,76 @@ jobs:
             | grep --ignore-case '^Cross-Origin-Opener-Policy: same-origin'
           curl --fail --silent --show-error --head http://127.0.0.1:8080/ \
             | grep --ignore-case '^Cross-Origin-Embedder-Policy: require-corp'
+
+      - name: Set up Node for runtime benchmarks
+        if: inputs.experimental_single_thread
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Lean4Game/lean4game/package-lock.json
+
+      - name: Install Cypress benchmark dependencies
+        if: inputs.experimental_single_thread
+        working-directory: Lean4Game/lean4game
+        run: npm ci
+
+      - name: Benchmark threaded and single-thread runtimes
+        if: inputs.experimental_single_thread
+        working-directory: Lean4Game/lean4game
+        env:
+          THREADED_IMAGE: ghcr.io/${{ github.repository }}:latest
+          SINGLE_IMAGE: ghcr.io/${{ github.repository }}:single-thread-experimental
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm --force benchmark-threaded benchmark-single >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          mkdir -p cypress/results
+
+          docker pull "$THREADED_IMAGE"
+          docker run --detach --name benchmark-threaded --publish 8081:80 "$THREADED_IMAGE"
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:8081/ >/dev/null && break
+            sleep 1
+          done
+          for sample in 1 2 3; do
+            node scripts/run-cypress.cjs run \
+              --spec cypress/e2e/runtime-performance.cy.ts \
+              --browser chrome \
+              --config baseUrl=http://127.0.0.1:8081,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
+              --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000,BENCHMARK_VARIANT=threaded-$sample
+          done
+          docker rm --force benchmark-threaded
+
+          docker pull "$SINGLE_IMAGE"
+          docker run --detach --name benchmark-single --publish 8082:80 "$SINGLE_IMAGE"
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:8082/ >/dev/null && break
+            sleep 1
+          done
+          for sample in 1 2 3; do
+            node scripts/run-cypress.cjs run \
+              --spec cypress/e2e/runtime-performance.cy.ts \
+              --browser chrome \
+              --config baseUrl=http://127.0.0.1:8082,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
+              --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000,BENCHMARK_VARIANT=single-thread-$sample
+          done
+          node scripts/run-cypress.cjs run \
+            --spec cypress/e2e/nng4-visual-complete-playthrough.cy.ts \
+            --browser chrome \
+            --config baseUrl=http://127.0.0.1:8082,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
+            --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000
+
+      - name: Upload runtime benchmark results
+        if: always() && inputs.experimental_single_thread
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-threading-benchmark-${{ github.run_id }}
+          path: Lean4Game/lean4game/cypress/results
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Release summary
         run: |

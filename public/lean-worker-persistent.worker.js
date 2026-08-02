@@ -69,6 +69,14 @@ function pickWasmMemory() {
   return null; // let Emscripten try its own default and fail loudly
 }
 
+function reportRuntimeMemory(stage) {
+  try {
+    if (self.Module && Module.HEAPU8) {
+      self.postMessage({ type: 'runtime_memory', stage, bytes: Module.HEAPU8.buffer.byteLength });
+    }
+  } catch (e) { /* runtime may not be initialized yet */ }
+}
+
 function mkdirp(FS, path) {
   let current = '';
   for (const part of path.split('/').filter((p) => p)) {
@@ -152,13 +160,14 @@ self.onmessage = (event) => {
     startLeanModule();
   } else if (msg.type === 'compile') {
     self.postMessage({ type: 'compile_result', ...compileCode(msg.code, msg.path) });
+    reportRuntimeMemory('compile');
   } else if (msg.type === 'load_snapshot') {
     loadSnapshot(msg.name, msg.url)
-      .then((r) => self.postMessage({ type: 'snapshot_loaded', ...r }))
+      .then((r) => { self.postMessage({ type: 'snapshot_loaded', ...r }); reportRuntimeMemory('snapshot'); })
       .catch((e) => self.postMessage({ type: 'snapshot_loaded', success: false, error: (e && e.message) || String(e) }));
   } else if (msg.type === 'load_module_bundle') {
     loadModuleBundle(msg.url)
-      .then((r) => self.postMessage({ type: 'module_bundle_loaded', ...r }))
+      .then((r) => { self.postMessage({ type: 'module_bundle_loaded', ...r }); reportRuntimeMemory('modules'); })
       .catch((e) => self.postMessage({ type: 'module_bundle_loaded', success: false, error: (e && e.message) || String(e) }));
   }
 };
@@ -553,6 +562,7 @@ function startLeanModule() {
         moduleReady = true;
         self.postMessage({ type: 'startup_stage', data: 'Lean runtime ready' });
         self.postMessage({ type: 'worker_ready' });
+        reportRuntimeMemory('ready');
       } catch (e) {
         self.postMessage({ type: 'error', data: 'Lean init failed: ' + ((e && e.message) || e) });
       }
