@@ -7,7 +7,7 @@ on:
       lean4game_ref:
         description: Lean4Game commit containing the benchmark suite
         required: true
-        default: aa78fb892a09bfcf1f8efc6e331710bfc90ab0d0
+        default: 73a71d8805377bedd862717c5f301f3086b178db
         type: string
 
 jobs:
