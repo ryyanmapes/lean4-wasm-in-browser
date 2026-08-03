@@ -547,7 +547,12 @@ function startLeanModule() {
         Module._lean_initialize_runtime_module();
         Module._lean_initialize();
         Module._lean_io_mark_end_initialization();
-        if (Module._lean_init_task_manager) Module._lean_init_task_manager();
+        const runtimeThreads = Number(self.__LEAN_RUNTIME_THREADS);
+        if (runtimeThreads > 0 && Module._lean_init_task_manager_using) {
+          Module._lean_init_task_manager_using(runtimeThreads);
+        } else if (Module._lean_init_task_manager) {
+          Module._lean_init_task_manager();
+        }
         // Hold the Emscripten runtime for the worker's lifetime. Incomplete Lean
         // proofs intentionally return process status 1 after emitting their
         // `unsolved goals` diagnostics; without this keepalive, that status
