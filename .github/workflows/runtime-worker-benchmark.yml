@@ -7,7 +7,7 @@ on:
       lean4game_ref:
         description: Lean4Game commit containing the benchmark suite
         required: true
-        default: 9f469b1e61d9fc81a6755cae561bf5817bf11c22
+        default: aa78fb892a09bfcf1f8efc6e331710bfc90ab0d0
         type: string
 
 jobs:
@@ -57,7 +57,7 @@ jobs:
             curl --fail --silent http://127.0.0.1:8081/ >/dev/null && break
             sleep 1
           done
-          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8081 four-worker 3
+          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8081 four-worker 1
           docker rm --force benchmark-threaded
 
           docker pull "$ONE_WORKER_IMAGE"
@@ -66,7 +66,7 @@ jobs:
             curl --fail --silent http://127.0.0.1:8082/ >/dev/null && break
             sleep 1
           done
-          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8082 one-worker 3
+          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8082 one-worker 1
 
       - name: Upload benchmark evidence
         if: always()
