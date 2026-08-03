@@ -9,6 +9,11 @@ on:
         required: true
         default: ghcr.io/ryyanmapes/lean4-wasm-in-browser:latest
         type: string
+      base_url:
+        description: Optional deployed URL; when set, validate it instead of starting a container
+        required: false
+        default: ''
+        type: string
       lean4game_ref:
         description: Lean4Game commit containing the validation suite
         required: true
@@ -49,6 +54,7 @@ jobs:
       - name: Run all-level isolated-browser validation
         env:
           IMAGE: ${{ inputs.image }}
+          BASE_URL: ${{ inputs.base_url }}
           VISUAL_TIMEOUT: 600000
         run: |
           set -euo pipefail
@@ -60,18 +66,21 @@ jobs:
           test -n "$CHROME_PATH"
           "$CHROME_PATH" --version
 
-          docker pull "$IMAGE"
-          docker run --detach --name mobile-module-validation --publish 8080:80 \
-            --volume "$PWD/browser-host/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
-            "$IMAGE"
-          for attempt in $(seq 1 30); do
-            curl --fail --silent http://127.0.0.1:8080/ >/dev/null && break
-            sleep 1
-          done
+          if [[ -z "$BASE_URL" ]]; then
+            docker pull "$IMAGE"
+            docker run --detach --name mobile-module-validation --publish 8080:80 \
+              --volume "$PWD/browser-host/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
+              "$IMAGE"
+            BASE_URL=http://127.0.0.1:8080
+            for attempt in $(seq 1 30); do
+              curl --fail --silent "$BASE_URL/" >/dev/null && break
+              sleep 1
+            done
+          fi
           curl --fail --silent --show-error \
-            http://127.0.0.1:8080/visual-lean/modules/game-modules.tar.gz >/dev/null
+            "$BASE_URL/visual-lean/modules/game-modules.tar.gz" >/dev/null
           node scripts/run-mobile-module-playthrough.mjs \
-            http://127.0.0.1:8080 mobile-module-all-levels
+            "$BASE_URL" mobile-module-all-levels
 
       - name: Upload validation evidence
         if: always()
