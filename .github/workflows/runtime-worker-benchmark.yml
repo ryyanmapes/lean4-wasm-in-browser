@@ -25,6 +25,11 @@ jobs:
           repository: ryyanmapes/lean4game
           ref: ${{ inputs.lean4game_ref }}
 
+      - name: Check out benchmark host override
+        uses: actions/checkout@v4
+        with:
+          path: benchmark-host
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -53,7 +58,7 @@ jobs:
 
           docker pull "$THREADED_IMAGE"
           docker run --detach --name benchmark-threaded --publish 8081:80 \
-            --volume "$PWD/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
+            --volume "$PWD/benchmark-host/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
             "$THREADED_IMAGE"
           for attempt in $(seq 1 30); do
             curl --fail --silent http://127.0.0.1:8081/ >/dev/null && break
@@ -64,7 +69,7 @@ jobs:
 
           docker pull "$ONE_WORKER_IMAGE"
           docker run --detach --name benchmark-one-worker --publish 8082:80 \
-            --volume "$PWD/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
+            --volume "$PWD/benchmark-host/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
             "$ONE_WORKER_IMAGE"
           for attempt in $(seq 1 30); do
             curl --fail --silent http://127.0.0.1:8082/ >/dev/null && break
