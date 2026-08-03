@@ -7,7 +7,7 @@ on:
       lean4game_ref:
         description: Lean4Game commit containing the benchmark suite
         required: true
-        default: b8fe2844e0a3b6ab05ac8a364223d3f9c7478bee
+        default: 9f469b1e61d9fc81a6755cae561bf5817bf11c22
         type: string
 
 jobs:
@@ -32,9 +32,11 @@ jobs:
           cache: npm
 
       - name: Install test dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false puppeteer-core@24
 
-      - name: Run A/B timings and one-worker playthrough
+      - name: Run isolated-browser A/B timings
         env:
           THREADED_IMAGE: ghcr.io/ryyanmapes/lean4-wasm-in-browser:latest
           ONE_WORKER_IMAGE: ghcr.io/ryyanmapes/lean4-wasm-in-browser:one-worker-experimental
@@ -45,6 +47,9 @@ jobs:
           }
           trap cleanup EXIT
           mkdir -p cypress/results
+          export CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          test -n "$CHROME_PATH"
+          "$CHROME_PATH" --version
 
           docker pull "$THREADED_IMAGE"
           docker run --detach --name benchmark-threaded --publish 8081:80 "$THREADED_IMAGE"
@@ -52,13 +57,7 @@ jobs:
             curl --fail --silent http://127.0.0.1:8081/ >/dev/null && break
             sleep 1
           done
-          for sample in 1 2 3; do
-            node scripts/run-cypress.cjs run \
-              --spec cypress/e2e/runtime-performance.cy.ts \
-              --browser electron \
-              --config baseUrl=http://127.0.0.1:8081,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
-              --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000,BENCHMARK_VARIANT=four-worker-$sample
-          done
+          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8081 four-worker 3
           docker rm --force benchmark-threaded
 
           docker pull "$ONE_WORKER_IMAGE"
@@ -67,18 +66,7 @@ jobs:
             curl --fail --silent http://127.0.0.1:8082/ >/dev/null && break
             sleep 1
           done
-          for sample in 1 2 3; do
-            node scripts/run-cypress.cjs run \
-              --spec cypress/e2e/runtime-performance.cy.ts \
-              --browser electron \
-              --config baseUrl=http://127.0.0.1:8082,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
-              --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000,BENCHMARK_VARIANT=one-worker-$sample
-          done
-          node scripts/run-cypress.cjs run \
-            --spec cypress/e2e/nng4-visual-complete-playthrough.cy.ts \
-            --browser electron \
-            --config baseUrl=http://127.0.0.1:8082,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
-            --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000
+          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8082 one-worker 3
 
       - name: Upload benchmark evidence
         if: always()
@@ -87,6 +75,5 @@ jobs:
           name: runtime-worker-benchmark-${{ github.run_id }}
           path: |
             cypress/results
-            cypress/screenshots
           if-no-files-found: warn
           retention-days: 14
