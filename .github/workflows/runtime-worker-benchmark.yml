@@ -34,7 +34,7 @@ jobs:
       - name: Install test dependencies
         run: |
           npm ci
-          npm install --no-save --package-lock=false puppeteer-core@24
+          npm install --no-save --package-lock=false --legacy-peer-deps puppeteer-core@24
 
       - name: Run isolated-browser A/B timings
         env:
