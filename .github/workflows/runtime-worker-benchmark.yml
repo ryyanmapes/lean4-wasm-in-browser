@@ -52,21 +52,25 @@ jobs:
           "$CHROME_PATH" --version
 
           docker pull "$THREADED_IMAGE"
-          docker run --detach --name benchmark-threaded --publish 8081:80 "$THREADED_IMAGE"
+          docker run --detach --name benchmark-threaded --publish 8081:80 \
+            --volume "$PWD/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
+            "$THREADED_IMAGE"
           for attempt in $(seq 1 30); do
             curl --fail --silent http://127.0.0.1:8081/ >/dev/null && break
             sleep 1
           done
-          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8081 four-worker 1
+          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8081 four-worker 3
           docker rm --force benchmark-threaded
 
           docker pull "$ONE_WORKER_IMAGE"
-          docker run --detach --name benchmark-one-worker --publish 8082:80 "$ONE_WORKER_IMAGE"
+          docker run --detach --name benchmark-one-worker --publish 8082:80 \
+            --volume "$PWD/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
+            "$ONE_WORKER_IMAGE"
           for attempt in $(seq 1 30); do
             curl --fail --silent http://127.0.0.1:8082/ >/dev/null && break
             sleep 1
           done
-          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8082 one-worker 1
+          node scripts/run-runtime-benchmark.mjs http://127.0.0.1:8082 one-worker 3
 
       - name: Upload benchmark evidence
         if: always()

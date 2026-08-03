@@ -70,11 +70,10 @@ function pickWasmMemory() {
 }
 
 function reportRuntimeMemory(stage) {
-  try {
-    if (self.Module && Module.HEAPU8) {
-      self.postMessage({ type: 'runtime_memory', stage, bytes: Module.HEAPU8.buffer.byteLength });
-    }
-  } catch (e) { /* runtime may not be initialized yet */ }
+  // Accessing Module.HEAPU8 aborts builds that do not explicitly export that
+  // Emscripten runtime property. Browser heap usage is sampled externally by
+  // the benchmark instead, so telemetry must never touch the Lean runtime.
+  void stage;
 }
 
 function mkdirp(FS, path) {
