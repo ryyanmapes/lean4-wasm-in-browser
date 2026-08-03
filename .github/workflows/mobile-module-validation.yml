@@ -1,0 +1,85 @@
+name: Validate mobile module runtime
+run-name: Validate all Visual NNG levels through mobile modules
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Container image to validate
+        required: true
+        default: ghcr.io/ryyanmapes/lean4-wasm-in-browser:latest
+        type: string
+      lean4game_ref:
+        description: Lean4Game commit containing the validation suite
+        required: true
+        default: b9f0e443ee32e65a33fe1596057b5b3769829422
+        type: string
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Check out Lean4Game validation suite
+        uses: actions/checkout@v4
+        with:
+          repository: ryyanmapes/lean4game
+          ref: ${{ inputs.lean4game_ref }}
+
+      - name: Check out browser host override
+        uses: actions/checkout@v4
+        with:
+          path: browser-host
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install validation dependencies
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false --legacy-peer-deps puppeteer-core@24
+
+      - name: Run all-level isolated-browser validation
+        env:
+          IMAGE: ${{ inputs.image }}
+          VISUAL_TIMEOUT: 600000
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm --force mobile-module-validation >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          export CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          test -n "$CHROME_PATH"
+          "$CHROME_PATH" --version
+
+          docker pull "$IMAGE"
+          docker run --detach --name mobile-module-validation --publish 8080:80 \
+            --volume "$PWD/browser-host/public/lean-worker-persistent.worker.js:/usr/share/nginx/html/lean-worker-persistent.worker.js:ro" \
+            "$IMAGE"
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:8080/ >/dev/null && break
+            sleep 1
+          done
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/visual-lean/modules/game-modules.tar.gz >/dev/null
+          node scripts/run-mobile-module-playthrough.mjs \
+            http://127.0.0.1:8080 mobile-module-all-levels
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-module-validation-${{ github.run_id }}
+          path: |
+            cypress/results/mobile-module-all-levels.json
+            cypress/results/mobile-module-all-levels-failure.png
+          if-no-files-found: warn
+          retention-days: 14
