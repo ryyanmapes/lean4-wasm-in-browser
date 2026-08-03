@@ -221,7 +221,7 @@ jobs:
           for sample in 1 2 3; do
             node scripts/run-cypress.cjs run \
               --spec cypress/e2e/runtime-performance.cy.ts \
-              --browser chrome \
+              --browser electron \
               --config baseUrl=http://127.0.0.1:8081,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
               --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000,BENCHMARK_VARIANT=threaded-$sample
           done
@@ -236,13 +236,13 @@ jobs:
           for sample in 1 2 3; do
             node scripts/run-cypress.cjs run \
               --spec cypress/e2e/runtime-performance.cy.ts \
-              --browser chrome \
+              --browser electron \
               --config baseUrl=http://127.0.0.1:8082,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
               --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000,BENCHMARK_VARIANT=one-worker-$sample
           done
           node scripts/run-cypress.cjs run \
             --spec cypress/e2e/nng4-visual-complete-playthrough.cy.ts \
-            --browser chrome \
+            --browser electron \
             --config baseUrl=http://127.0.0.1:8082,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
             --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000
 
