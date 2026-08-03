@@ -186,7 +186,7 @@ jobs:
             | grep --ignore-case '^Cross-Origin-Embedder-Policy: require-corp'
 
       - name: Set up Node for runtime benchmarks
-        if: inputs.experimental_one_worker
+        if: inputs.experimental_one_worker || inputs.experimental_mobile_modules
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -194,9 +194,47 @@ jobs:
           cache-dependency-path: Lean4Game/lean4game/package-lock.json
 
       - name: Install Cypress benchmark dependencies
-        if: inputs.experimental_one_worker
+        if: inputs.experimental_one_worker || inputs.experimental_mobile_modules
         working-directory: Lean4Game/lean4game
-        run: npm ci
+        run: |
+          npm ci
+          if [[ "${{ inputs.experimental_mobile_modules || false }}" == "true" ]]; then
+            npm install --no-save --package-lock=false --legacy-peer-deps puppeteer-core@24
+          fi
+
+      - name: Validate every Visual NNG level through mobile modules
+        if: inputs.experimental_mobile_modules && !inputs.experimental_one_worker
+        working-directory: Lean4Game/lean4game
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:latest
+          VISUAL_TIMEOUT: 600000
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm --force mobile-module-release-validation >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          export CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          test -n "$CHROME_PATH"
+          docker pull "$IMAGE"
+          docker run --detach --name mobile-module-release-validation --publish 8083:80 "$IMAGE"
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:8083/ >/dev/null && break
+            sleep 1
+          done
+          node scripts/run-mobile-module-playthrough.mjs \
+            http://127.0.0.1:8083 mobile-module-release-all-levels
+
+      - name: Upload mobile module validation evidence
+        if: always() && inputs.experimental_mobile_modules && !inputs.experimental_one_worker
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-module-release-validation-${{ github.run_id }}
+          path: |
+            Lean4Game/lean4game/cypress/results/mobile-module-release-all-levels.json
+            Lean4Game/lean4game/cypress/results/mobile-module-release-all-levels-failure.png
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Benchmark four-worker and one-worker runtimes
         if: inputs.experimental_one_worker
