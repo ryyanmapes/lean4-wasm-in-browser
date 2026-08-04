@@ -1,14 +1,5 @@
 # Cloudflare Pages response headers.
 
-# Cross-origin isolation. This is a pthread build with SHARED WebAssembly
-# memory, which requires SharedArrayBuffer — only available in a
-# cross-origin-isolated context. Must be present on the top-level document AND
-# the worker iframes. Assets served from R2 by the Pages Function are
-# same-origin, so they need no CORP under `require-corp`.
-/*
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
-
 # The manifest is regenerated whenever the WASM artifact changes; keep it short
 # so an artifact swap propagates quickly.
 /lean-manifest.json

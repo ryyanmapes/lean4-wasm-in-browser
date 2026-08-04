@@ -1,5 +1,5 @@
 name: Browser game Docker release
-run-name: Build browser game image
+run-name: Build canonical browser game image
 
 on:
   workflow_dispatch:
@@ -19,16 +19,6 @@ on:
         required: false
         default: main
         type: string
-      experimental_mobile_modules:
-        description: Include the opt-in validated loose-module mobile runtime
-        required: true
-        default: false
-        type: boolean
-      experimental_one_worker:
-        description: Publish an isolated one-worker pthread image without replacing latest
-        required: true
-        default: false
-        type: boolean
   push:
     tags:
       - "v*"
@@ -39,98 +29,82 @@ concurrency:
 
 jobs:
   browser-runtime:
-    name: Build Lean WASM snapshot artifact
+    name: Build single-thread Lean WASM module artifact
     uses: ryyanmapes/lean4game/.github/workflows/build-browser-lean-libs.yml@main
     with:
       lean4game_ref: ${{ inputs.lean4game_ref || 'main' }}
       nng4_ref: ${{ inputs.nng4_ref || 'main' }}
       visualtest_ref: ${{ inputs.visualtest_ref || 'main' }}
       include_nng4: true
-      experimental_size_profiles: ${{ inputs.experimental_mobile_modules || false }}
-      experimental_one_worker: ${{ inputs.experimental_one_worker || false }}
     secrets:
       CAULI_ARTIFACT_TOKEN: ${{ secrets.CAULI_ARTIFACT_TOKEN }}
 
   docker:
-    name: Assemble and publish browser game
+    name: Assemble, validate, and publish browser game
     needs: browser-runtime
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: read
       packages: write
-
     steps:
-      - name: Check out lean4.js release shell
+      - name: Check out release shell
         uses: actions/checkout@v4
         with:
           path: lean4.js
-
       - name: Check out Lean4Game client
         uses: actions/checkout@v4
         with:
           repository: ryyanmapes/lean4game
           ref: ${{ inputs.lean4game_ref || 'main' }}
           path: Lean4Game/lean4game
-
       - name: Check out NNG4
         uses: actions/checkout@v4
         with:
           repository: ryyanmapes/NNG4
           ref: ${{ inputs.nng4_ref || 'main' }}
           path: Lean4Game/NNG4
-
       - name: Check out VisualTest
         uses: actions/checkout@v4
         with:
           repository: ryyanmapes/VisualTest
           ref: ${{ inputs.visualtest_ref || 'main' }}
           path: Lean4Game/VisualTest
-
-      - name: Download Lean WASM runtime and snapshot
+      - name: Download canonical Lean WASM runtime and modules
         uses: actions/download-artifact@v4
         with:
           pattern: visual-lean-libs-*
           merge-multiple: true
           path: visual-lean-artifact
-
-      - name: Verify runtime artifact
+      - name: Verify canonical runtime artifact
         run: |
-          mkdir -p visual-lean-artifact/modules
           test -s visual-lean-artifact/runtime/lean.js
           test -s visual-lean-artifact/runtime/lean.wasm
-          test -s visual-lean-artifact/snapshots/game.snap.gz
+          test -s visual-lean-artifact/modules/game-modules.tar.gz
           test -s visual-lean-artifact/gamedata/NNG4/game.json
           test -s visual-lean-artifact/gamedata/VisualTest/game.json
-          if [[ "${{ inputs.experimental_mobile_modules || false }}" == "true" ]]; then
-            test -s visual-lean-artifact/modules/game-modules.tar.gz
-          fi
+          ! grep -q 'PThread' visual-lean-artifact/runtime/lean.js
           du -sh visual-lean-artifact
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Generate image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest,enable=${{ !inputs.experimental_one_worker }}
-            type=raw,value=one-worker-experimental,enable=${{ inputs.experimental_one_worker }}
+            type=raw,value=latest
             type=sha,prefix=sha-
             type=ref,event=tag
           labels: |
             org.opencontainers.image.title=The Natural Numbers Game
             org.opencontainers.image.description=Browser-local NNG4 and Visual Lean, formally checked by Lean WASM
-
       - name: Build and publish
         uses: docker/build-push-action@v6
         with:
@@ -143,168 +117,76 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
-
       - name: Smoke-test the published image
         shell: bash
         env:
-          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.experimental_one_worker && 'one-worker-experimental' || 'latest' }}
+          IMAGE: ghcr.io/${{ github.repository }}:latest
         run: |
           set -euo pipefail
           docker pull "$IMAGE"
           docker run --detach --name lean4-wasm-release-smoke --publish 8080:80 "$IMAGE"
-          cleanup() {
-            docker rm --force lean4-wasm-release-smoke >/dev/null 2>&1 || true
-          }
+          cleanup() { docker rm --force lean4-wasm-release-smoke >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:8080/ >/dev/null; then
-              break
-            fi
-            if [ "$attempt" -eq 30 ]; then
-              docker logs lean4-wasm-release-smoke
-              exit 1
-            fi
+            curl --fail --silent http://127.0.0.1:8080/ >/dev/null && break
+            if [[ "$attempt" == 30 ]]; then docker logs lean4-wasm-release-smoke; exit 1; fi
             sleep 1
           done
-
-          curl --fail --silent --show-error \
-            http://127.0.0.1:8080/lean4game/index.html >/dev/null
-          curl --fail --silent --show-error \
-            http://127.0.0.1:8080/lean4game/data/g/local/NNG4/game.json >/dev/null
-          curl --fail --silent --show-error \
-            http://127.0.0.1:8080/lean4game/data/g/local/VisualTest/game.json >/dev/null
-          curl --fail --silent --show-error \
-            http://127.0.0.1:8080/visual-lean/snapshots/game.snap.gz >/dev/null
-          if [[ "${{ inputs.experimental_mobile_modules || false }}" == "true" ]]; then
-            curl --fail --silent --show-error \
-              http://127.0.0.1:8080/visual-lean/modules/game-modules.tar.gz >/dev/null
+          curl --fail --silent http://127.0.0.1:8080/lean4game/index.html >/dev/null
+          curl --fail --silent http://127.0.0.1:8080/lean4game/data/g/local/NNG4/game.json >/dev/null
+          curl --fail --silent http://127.0.0.1:8080/lean4game/data/g/local/VisualTest/game.json >/dev/null
+          curl --fail --silent http://127.0.0.1:8080/visual-lean/modules/game-modules.tar.gz >/dev/null
+          if curl --silent --head http://127.0.0.1:8080/ | grep --ignore-case -q '^Cross-Origin-'; then
+            echo '::error::The canonical single-thread site unexpectedly requires cross-origin isolation.'
+            exit 1
           fi
-          curl --fail --silent --show-error --head http://127.0.0.1:8080/ \
-            | grep --ignore-case '^Cross-Origin-Opener-Policy: same-origin'
-          curl --fail --silent --show-error --head http://127.0.0.1:8080/ \
-            | grep --ignore-case '^Cross-Origin-Embedder-Policy: require-corp'
-
-      - name: Set up Node for runtime benchmarks
-        if: inputs.experimental_one_worker || inputs.experimental_mobile_modules
+      - name: Set up Node for the release gate
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: Lean4Game/lean4game/package-lock.json
-
-      - name: Install Cypress benchmark dependencies
-        if: inputs.experimental_one_worker || inputs.experimental_mobile_modules
+      - name: Install release-gate dependencies
         working-directory: Lean4Game/lean4game
         run: |
           npm ci
-          if [[ "${{ inputs.experimental_mobile_modules || false }}" == "true" ]]; then
-            npm install --no-save --package-lock=false --legacy-peer-deps puppeteer-core@24
-          fi
-
-      - name: Validate every Visual NNG level through mobile modules
-        if: inputs.experimental_mobile_modules && !inputs.experimental_one_worker
+          npm install --no-save --package-lock=false --legacy-peer-deps puppeteer-core@24
+      - name: Validate all Visual NNG levels without isolation
         working-directory: Lean4Game/lean4game
         env:
           IMAGE: ghcr.io/${{ github.repository }}:latest
           VISUAL_TIMEOUT: 600000
+          EXPECT_CROSS_ORIGIN_ISOLATED: 'false'
         run: |
           set -euo pipefail
-          cleanup() {
-            docker rm --force mobile-module-release-validation >/dev/null 2>&1 || true
-          }
+          cleanup() { docker rm --force canonical-release-validation >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           export CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
           test -n "$CHROME_PATH"
-          docker pull "$IMAGE"
-          docker run --detach --name mobile-module-release-validation --publish 8083:80 "$IMAGE"
+          docker run --detach --name canonical-release-validation --publish 8083:80 "$IMAGE"
           for attempt in $(seq 1 30); do
             curl --fail --silent http://127.0.0.1:8083/ >/dev/null && break
             sleep 1
           done
-          node scripts/run-mobile-module-playthrough.mjs \
-            http://127.0.0.1:8083 mobile-module-release-all-levels
-
-      - name: Upload mobile module validation evidence
-        if: always() && inputs.experimental_mobile_modules && !inputs.experimental_one_worker
+          node scripts/run-mobile-module-playthrough.mjs http://127.0.0.1:8083 canonical-release-all-levels
+      - name: Upload release validation evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-module-release-validation-${{ github.run_id }}
+          name: canonical-release-validation-${{ github.run_id }}
           path: |
-            Lean4Game/lean4game/cypress/results/mobile-module-release-all-levels.json
-            Lean4Game/lean4game/cypress/results/mobile-module-release-all-levels-failure.png
+            Lean4Game/lean4game/cypress/results/canonical-release-all-levels.json
+            Lean4Game/lean4game/cypress/results/canonical-release-all-levels-failure.png
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Benchmark four-worker and one-worker runtimes
-        if: inputs.experimental_one_worker
-        working-directory: Lean4Game/lean4game
-        env:
-          THREADED_IMAGE: ghcr.io/${{ github.repository }}:latest
-          ONE_WORKER_IMAGE: ghcr.io/${{ github.repository }}:one-worker-experimental
-        run: |
-          set -euo pipefail
-          cleanup() {
-            docker rm --force benchmark-threaded benchmark-one-worker >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          mkdir -p cypress/results
-
-          docker pull "$THREADED_IMAGE"
-          docker run --detach --name benchmark-threaded --publish 8081:80 "$THREADED_IMAGE"
-          for attempt in $(seq 1 30); do
-            curl --fail --silent http://127.0.0.1:8081/ >/dev/null && break
-            sleep 1
-          done
-          for sample in 1 2 3; do
-            node scripts/run-cypress.cjs run \
-              --spec cypress/e2e/runtime-performance.cy.ts \
-              --browser electron \
-              --config baseUrl=http://127.0.0.1:8081,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
-              --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000,BENCHMARK_VARIANT=threaded-$sample
-          done
-          docker rm --force benchmark-threaded
-
-          docker pull "$ONE_WORKER_IMAGE"
-          docker run --detach --name benchmark-one-worker --publish 8082:80 "$ONE_WORKER_IMAGE"
-          for attempt in $(seq 1 30); do
-            curl --fail --silent http://127.0.0.1:8082/ >/dev/null && break
-            sleep 1
-          done
-          for sample in 1 2 3; do
-            node scripts/run-cypress.cjs run \
-              --spec cypress/e2e/runtime-performance.cy.ts \
-              --browser electron \
-              --config baseUrl=http://127.0.0.1:8082,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
-              --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000,BENCHMARK_VARIANT=one-worker-$sample
-          done
-          node scripts/run-cypress.cjs run \
-            --spec cypress/e2e/nng4-visual-complete-playthrough.cy.ts \
-            --browser electron \
-            --config baseUrl=http://127.0.0.1:8082,defaultCommandTimeout=60000,pageLoadTimeout=600000 \
-            --env LEAN4GAME_ENTRY=/lean4game/index.html?mobileModules=1,LEAN4GAME_MOUNT=/lean4game/index.html?mobileModules=1,VISUAL_TIMEOUT=600000
-
-      - name: Upload runtime benchmark results
-        if: always() && inputs.experimental_one_worker
-        uses: actions/upload-artifact@v4
-        with:
-          name: runtime-threading-benchmark-${{ github.run_id }}
-          path: Lean4Game/lean4game/cypress/results
-          if-no-files-found: warn
-          retention-days: 14
-
       - name: Release summary
         run: |
           {
-            echo '### Published container'
+            echo '### Published canonical container'
+            echo
+            echo 'Single-threaded Lean WASM, reduced dynamic module loading, and no cross-origin isolation requirement.'
             echo
             echo '```'
             echo '${{ steps.meta.outputs.tags }}'
-            echo '```'
-            echo
-            echo 'Run with:'
-            echo
-            echo '```bash'
-            echo 'docker run --rm -p 8080:80 ghcr.io/${{ github.repository }}:latest'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

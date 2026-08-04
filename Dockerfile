@@ -20,10 +20,9 @@ COPY Lean4Game/lean4game ./Lean4Game/lean4game
 COPY Lean4Game/NNG4 ./Lean4Game/NNG4
 COPY Lean4Game/VisualTest ./Lean4Game/VisualTest
 
-# The reusable Lean4Game workflow produces this directory. Keep the runtime
-# and snapshot together: saved Lean environments are binary-build-specific.
+# The reusable Lean4Game workflow produces a version-matched single-thread
+# runtime and the reduced module closure used by both games.
 COPY visual-lean-artifact/runtime/ ./lean4.js/public/visual-lean/runtime/
-COPY visual-lean-artifact/snapshots/ ./lean4.js/public/visual-lean/snapshots/
 COPY visual-lean-artifact/modules/ ./lean4.js/public/visual-lean/modules/
 COPY visual-lean-artifact/build-info.json ./lean4.js/public/visual-lean/build-info.json
 COPY visual-lean-artifact/gamedata/NNG4/ ./Lean4Game/NNG4/.lake/gamedata/
@@ -36,7 +35,7 @@ WORKDIR /workspace/lean4.js
 RUN npm ci \
   && test -s public/visual-lean/runtime/lean.js \
   && test -s public/visual-lean/runtime/lean.wasm \
-  && test -s public/visual-lean/snapshots/game.snap.gz \
+  && test -s public/visual-lean/modules/game-modules.tar.gz \
   && npm run sync-lean4game-client \
   && npm run build \
   && test -s dist/index.html \
@@ -53,7 +52,7 @@ COPY --from=web-builder /workspace/lean4.js/dist/ /usr/share/nginx/html/
 RUN nginx -t \
   && test -s /usr/share/nginx/html/index.html \
   && test -s /usr/share/nginx/html/visual-lean/runtime/lean.wasm \
-  && test -s /usr/share/nginx/html/visual-lean/snapshots/game.snap.gz
+  && test -s /usr/share/nginx/html/visual-lean/modules/game-modules.tar.gz
 
 EXPOSE 80
 
