@@ -19,3 +19,6 @@ lean4.js/public/lean-wasm*
 !visual-lean-artifact
 !visual-lean-artifact/**
 
+# The canonical browser uses the reduced module archive. Do not even transfer
+# the legacy diagnostic snapshots into the Docker build context.
+visual-lean-artifact/snapshots
