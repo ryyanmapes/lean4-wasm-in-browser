@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lean_telemetry
+      POSTGRES_USER: lean_telemetry
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - telemetry_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U lean_telemetry -d lean_telemetry]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  collector:
+    image: ghcr.io/ryyanmapes/lean4-wasm-in-browser-telemetry:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: lean_telemetry
+      PGUSER: lean_telemetry
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://leangame.autumnofautumn.com}
+      REQUESTS_PER_MINUTE: ${REQUESTS_PER_MINUTE:-120}
+    ports:
+      - 127.0.0.1:8090:8080
+
+volumes:
+  telemetry_postgres:

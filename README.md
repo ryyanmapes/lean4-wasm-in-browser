@@ -43,6 +43,10 @@ unreferenced duplicate public font tree.
 The runtime does not use `SharedArrayBuffer`, so static hosting does not need
 COOP/COEP response headers.
 
+The optional telemetry collector is independent of Lean and the static site.
+Its PostgreSQL schema, Docker Compose deployment, CORS settings, privacy notes,
+and reporting queries are documented in [`telemetry/README.md`](telemetry/README.md).
+
 The workflow publishes:
 
 ```text
@@ -85,4 +89,5 @@ src/                              small release launcher
 public/lean4game/                 generated Lean4Game application
 public/visual-lean/               generated WASM runtime and module bundle
 scripts/sync-lean4game-client.mjs release client/data synchronization
+telemetry/                        optional PostgreSQL event collector
 ```

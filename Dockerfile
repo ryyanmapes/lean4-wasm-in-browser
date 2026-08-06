@@ -10,6 +10,9 @@
 
 FROM node:22-bookworm-slim AS web-builder
 
+ARG VITE_TELEMETRY_URL=https://telemetry.leangame.autumnofautumn.com
+ENV VITE_TELEMETRY_URL=${VITE_TELEMETRY_URL}
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
