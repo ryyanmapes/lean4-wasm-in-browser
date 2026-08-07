@@ -50,8 +50,8 @@ and reporting queries are documented in [`telemetry/README.md`](telemetry/README
 The workflow publishes:
 
 ```text
-ghcr.io/ryyanmapes/lean4-wasm-in-browser:latest
-ghcr.io/ryyanmapes/lean4-wasm-in-browser:sha-<commit>
+ghcr.io/astroautomata/lean4-wasm-in-browser:latest
+ghcr.io/astroautomata/lean4-wasm-in-browser:sha-<commit>
 ```
 
 Run the container with:
@@ -61,7 +61,7 @@ docker run --detach \
   --name natural-numbers-game \
   --restart unless-stopped \
   --publish 8080:80 \
-  ghcr.io/ryyanmapes/lean4-wasm-in-browser:latest
+  ghcr.io/astroautomata/lean4-wasm-in-browser:latest
 ```
 
 ## GitHub Pages and custom domain
@@ -76,7 +76,7 @@ leangame.autumnofautumn.com
 The DNS record for that subdomain must be a `CNAME` pointing directly to:
 
 ```text
-ryyanmapes.github.io
+astroautomata.github.io
 ```
 
 Do not include the repository name in the CNAME target. The application uses

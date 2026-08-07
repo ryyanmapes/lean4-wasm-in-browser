@@ -20,6 +20,8 @@ on:
         default: main
         type: string
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
@@ -140,6 +142,39 @@ jobs:
             echo '::error::The canonical single-thread site unexpectedly requires cross-origin isolation.'
             exit 1
           fi
+      - name: Release summary
+        run: |
+          {
+            echo '### Published canonical container'
+            echo
+            echo 'Single-threaded Lean WASM, reduced dynamic module loading, and no cross-origin isolation requirement.'
+            echo
+            echo '```'
+            echo '${{ steps.meta.outputs.tags }}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release-validation:
+    name: Validate all Visual NNG levels
+    needs: docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out Lean4Game client
+        uses: actions/checkout@v4
+        with:
+          repository: ryyanmapes/lean4game
+          ref: ${{ inputs.lean4game_ref || 'main' }}
+          path: Lean4Game/lean4game
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Node for the release gate
         uses: actions/setup-node@v4
         with:
@@ -179,20 +214,9 @@ jobs:
             Lean4Game/lean4game/cypress/results/canonical-release-all-levels-failure.png
           if-no-files-found: warn
           retention-days: 14
-      - name: Release summary
-        run: |
-          {
-            echo '### Published canonical container'
-            echo
-            echo 'Single-threaded Lean WASM, reduced dynamic module loading, and no cross-origin isolation requirement.'
-            echo
-            echo '```'
-            echo '${{ steps.meta.outputs.tags }}'
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
 
   pages:
-    name: Publish the validated image to GitHub Pages
+    name: Publish the smoke-tested image to GitHub Pages
     needs: docker
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -205,6 +229,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Extract the validated static site
         env:
           IMAGE: ghcr.io/${{ github.repository }}:latest
@@ -221,6 +251,8 @@ jobs:
           test -s _site/visual-lean/runtime/lean.wasm
           test -s _site/visual-lean/modules/game-modules.tar.gz
           ! test -e _site/visual-lean/snapshots/game.snap.gz
+          touch _site/.nojekyll
+          printf '%s\n' 'leangame.autumnofautumn.com' > _site/CNAME
 
           site_bytes="$(du -sb _site | cut -f1)"
           if (( site_bytes >= 1073741824 )); then
